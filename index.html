@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoVista - Galerie &amp; Visites Virtuelles</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://cdn.pannellum.org/2.5/pannellum.css">
+</head>
+<body>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <svg class="loading-logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="24" cy="24" r="19" stroke="currentColor" stroke-width="2.5"/>
+      <ellipse cx="24" cy="24" rx="8" ry="19" stroke="currentColor" stroke-width="2"/>
+      <path d="M5 24 Q24 17 43 24" stroke="currentColor" stroke-width="2" fill="none"/>
+      <path d="M5 24 Q24 31 43 24" stroke="currentColor" stroke-width="2" fill="none"/>
+      <circle cx="24" cy="24" r="3" fill="currentColor"/>
+    </svg>
+    <p>Chargement de PhotoVista...</p>
+  </div>
+
+  <!-- App wrapper -->
+  <div id="app" class="hidden">
+
+    <header class="app-header" id="app-header">
+      <div class="header-inner">
+        <button class="brand" onclick="App.navigate('home')">
+          <svg class="brand-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="24" cy="24" r="19" stroke="currentColor" stroke-width="2.5"/>
+            <ellipse cx="24" cy="24" rx="8" ry="19" stroke="currentColor" stroke-width="2"/>
+            <path d="M5 24 Q24 17 43 24" stroke="currentColor" stroke-width="2" fill="none"/>
+            <path d="M5 24 Q24 31 43 24" stroke="currentColor" stroke-width="2" fill="none"/>
+            <circle cx="24" cy="24" r="3" fill="currentColor"/>
+          </svg>
+          <span class="brand-name">PhotoVista</span>
+        </button>
+
+        <nav class="header-nav">
+          <button class="nav-btn" id="nav-gallery" onclick="App.navigate('gallery')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            <span>Galerie</span>
+          </button>
+          <button class="nav-btn" id="nav-tours" onclick="App.navigate('tours')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9,22 9,12 15,12 15,22"/>
+            </svg>
+            <span>Visites</span>
+          </button>
+          <button class="nav-btn" id="nav-stitcher" onclick="App.navigate('stitcher')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <ellipse cx="12" cy="12" rx="4" ry="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a14 14 0 0 1 0 20"/>
+            </svg>
+            <span>Créer 360°</span>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="app-main"></main>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-backdrop" class="modal-backdrop hidden" role="presentation" onclick="App.closeModal()">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-body" onclick="event.stopPropagation()">
+      <button class="modal-close-btn" onclick="App.closeModal()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.pannellum.org/2.5/pannellum.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/gallery.js"></script>
+  <script src="js/builder.js"></script>
+  <script src="js/viewer.js"></script>
+  <script src="js/stitcher.js"></script>
+</body>
+</html>
