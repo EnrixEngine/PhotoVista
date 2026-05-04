@@ -147,7 +147,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 1.25rem; font-weight: 800;
   letter-spacing: -.6px;
   background: var(--gradient-brand);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 
 /* Nav */
@@ -355,7 +355,7 @@ a { color: inherit; text-decoration: none; }
 }
 .hero h1 .gradient-text {
   background: var(--gradient-brand);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 @keyframes fade-up {
   from { opacity:0; transform: translateY(24px); }
@@ -376,7 +376,7 @@ a { color: inherit; text-decoration: none; }
   animation: fade-up .5s .4s cubic-bezier(.4,0,.2,1) both;
 }
 .hero-stat { text-align: center; }
-.hero-stat-num { font-size: 2rem; font-weight: 900; letter-spacing: -1px; background: var(--gradient-brand); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hero-stat-num { font-size: 2rem; font-weight: 900; letter-spacing: -1px; background: var(--gradient-brand); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .hero-stat-label { font-size: .8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
 
 /* Hero free badge */
@@ -725,6 +725,7 @@ a { color: inherit; text-decoration: none; }
 }
 .photo-card {
   background: var(--surface); border-radius: var(--r-xl);
+  will-change: transform;
   overflow: hidden; border: 1.5px solid var(--border);
   box-shadow: var(--shadow-xs);
   transition: all var(--t-slow);
@@ -809,6 +810,7 @@ a { color: inherit; text-decoration: none; }
 }
 .tour-card {
   background: var(--gradient-card); border-radius: var(--r-xl);
+  will-change: transform;
   border: 1.5px solid var(--border); box-shadow: var(--shadow-xs);
   overflow: hidden; transition: all var(--t-slow);
   animation: card-appear .3s ease both;
@@ -927,7 +929,7 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
 }
 .toolbar-sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
-.builder-canvas { flex: 1; overflow: hidden; position: relative; background: #0f1929; }
+.builder-canvas { flex: 1; overflow: hidden; position: relative; background: #0f1929; contain: layout paint; }
 
 /* ============================================================
    PHOTO VIEWERS
@@ -966,6 +968,7 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer; z-index: 10;
   transition: transform var(--t-slow);
   display: flex; flex-direction: column; align-items: center;
+  will-change: transform;
 }
 .pin-marker:hover { transform: translate(-50%, -100%) scale(1.2) translateY(-2px); }
 .pin-marker.builder-mode { cursor: pointer; }
@@ -1027,6 +1030,7 @@ a { color: inherit; text-decoration: none; }
 .viewer-page {
   height: calc(100vh - var(--header-h));
   position: relative; overflow: hidden; background: #000;
+  contain: layout paint;
 }
 .viewer-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
 .viewer-top-bar {
@@ -1067,6 +1071,7 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow-xl);
   width: 100%; max-width: 500px;
   position: relative; max-height: 90vh; overflow-y: auto;
+  will-change: transform, opacity;
   animation: modal-in .25s cubic-bezier(.34,1.56,.64,1);
   border: 1px solid rgba(255,255,255,.8);
 }
@@ -1150,6 +1155,7 @@ a { color: inherit; text-decoration: none; }
   padding: 13px 20px; border-radius: var(--r-lg);
   font-size: .88rem; font-weight: 700; letter-spacing: -.1px;
   box-shadow: var(--shadow-lg); min-width: 220px;
+  will-change: transform, opacity;
   animation: toast-in .3s cubic-bezier(.34,1.56,.64,1) both, toast-out .4s ease 2.7s forwards;
   backdrop-filter: blur(8px);
 }
@@ -1713,6 +1719,134 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 16px;
 }
 .stitch-diagram-svg { max-width: 320px; width: 100%; }
+
+/* ============================================================
+   MUSIC BAR (viewer)
+   ============================================================ */
+.viewer-music-bar {
+  position: absolute;
+  bottom: 28px; right: 24px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: rgba(15,23,42,.88);
+  backdrop-filter: blur(12px);
+  border-radius: 99px;
+  border: 1px solid rgba(255,255,255,.12);
+  color: #fff;
+  z-index: 25;
+  pointer-events: all;
+  box-shadow: var(--shadow-lg);
+  max-width: calc(100% - 48px);
+}
+.music-play-btn {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  color: #fff; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--t-base);
+}
+.music-play-btn:hover { background: rgba(255,255,255,.28); }
+.music-play-btn svg { width: 13px; height: 13px; }
+.music-info { display: flex; align-items: center; min-width: 60px; max-width: 160px; }
+.music-name {
+  font-size: .75rem; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.music-volume-wrap { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.music-volume-wrap svg { width: 15px; height: 15px; opacity: .65; flex-shrink: 0; }
+.music-volume-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 72px; height: 3px;
+  background: rgba(255,255,255,.3);
+  border-radius: 2px; cursor: pointer; outline: none;
+}
+.music-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer;
+}
+
+/* ============================================================
+   TEXT PIN POPUP (viewer)
+   ============================================================ */
+.text-pin-popup {
+  position: absolute;
+  bottom: 90px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15,23,42,.93);
+  backdrop-filter: blur(14px);
+  color: #fff;
+  border-radius: var(--r-xl);
+  border: 1px solid rgba(255,255,255,.13);
+  box-shadow: var(--shadow-xl);
+  width: min(380px, calc(100% - 40px));
+  z-index: 30;
+  pointer-events: all;
+  animation: popup-in .25s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes popup-in {
+  from { opacity:0; transform: translateX(-50%) translateY(14px) scale(.95); }
+  to   { opacity:1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.text-pin-popup-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  gap: 10px;
+}
+.text-pin-popup-title { font-size: .95rem; font-weight: 800; letter-spacing: -.2px; flex: 1; }
+.text-pin-popup-close {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.8);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background var(--t-base);
+}
+.text-pin-popup-close:hover { background: rgba(239,68,68,.45); }
+.text-pin-popup-close svg { width: 14px; height: 14px; }
+.text-pin-popup-body {
+  padding: 14px 16px;
+  font-size: .88rem; line-height: 1.75;
+  color: rgba(255,255,255,.82);
+  white-space: pre-wrap;
+  max-height: 220px; overflow-y: auto;
+}
+
+/* ============================================================
+   TEXT PINS — visual variant (blue/purple)
+   ============================================================ */
+.pin-marker.pin-text .pin-icon-wrap {
+  background: linear-gradient(135deg, #4f6ef7, #8b5cf6);
+  box-shadow: 0 4px 16px rgba(79,110,247,.5);
+}
+.pin-marker.pin-text:hover .pin-icon-wrap {
+  background: linear-gradient(135deg, #6b86f9, #a78bfa);
+}
+.custom-hotspot-text .pin-icon-wrap {
+  background: linear-gradient(135deg, #4f6ef7, #8b5cf6);
+  box-shadow: 0 4px 16px rgba(79,110,247,.5);
+}
+
+/* ============================================================
+   PIN TYPE TOGGLE (builder modal)
+   ============================================================ */
+.pin-type-btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 10px 14px; border-radius: var(--r-md);
+  border: 1.5px solid var(--border); background: var(--surface);
+  font-size: .85rem; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; transition: all var(--t-base); flex: 1;
+  user-select: none;
+}
+.pin-type-btn svg { width: 15px; height: 15px; }
+.pin-type-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+.pin-type-btn-active {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  background: var(--primary-light) !important;
+  box-shadow: 0 0 0 3px rgba(79,110,247,.12);
+}
 
 /* Responsive stitcher */
 @media (max-width: 700px) {

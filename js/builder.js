@@ -84,6 +84,11 @@ const Builder = {
               title="Définir cette photo comme point d'entrée de la visite">
               ${Icons.photos} Photo de départ
             </button>
+            <button class="btn btn-secondary btn-sm" id="btn-music" onclick="Builder.showMusicModal()"
+              title="Ajouter ou modifier la musique de fond de la visite"
+              style="${this.tour.music ? 'color:var(--primary);border-color:rgba(79,110,247,.3);background:var(--primary-light);' : ''}">
+              ${Icons.music} ${this.tour.music ? 'Musique ♪' : 'Musique'}
+            </button>
             <div style="flex:1;"></div>
             <div class="autosave-indicator" id="autosave-indicator">
               ${Icons.check} Sauvegardé
@@ -219,27 +224,30 @@ const Builder = {
     const renderPins = () => {
       const layer = document.getElementById('classic-pin-layer');
       if (!layer) return;
-      layer.innerHTML = '';
       const pins = this._getPinsForPhoto(this.selectedPhotoId);
       const bounds = ClassicViewer.getImgBounds(img);
-      if (!bounds) return;
+      if (!bounds) { layer.innerHTML = ''; return; }
+      const frag = document.createDocumentFragment();
       pins.forEach(h => {
         const px = bounds.x + h.relX * bounds.w;
         const py = bounds.y + h.relY * bounds.h;
         const el = document.createElement('div');
-        el.className = 'pin-marker builder-mode';
+        const isText = h.type === 'text';
+        el.className = 'pin-marker builder-mode' + (isText ? ' pin-text' : '');
         el.dataset.pinId = h.id;
         el.style.left = px + 'px';
         el.style.top = py + 'px';
         el.innerHTML = `
           <div class="pin-icon-wrap">
-            <div class="pin-icon-inner">${Icons.pin}</div>
+            <div class="pin-icon-inner">${isText ? Icons.messageText : Icons.pin}</div>
           </div>
           ${h.label ? `<span class="pin-label-bubble">${escHtml(h.label)}</span>` : ''}
         `;
         el.addEventListener('click', (e) => { e.stopPropagation(); Builder.selectPin(h.id); });
-        layer.appendChild(el);
+        frag.appendChild(el);
       });
+      layer.innerHTML = '';
+      layer.appendChild(frag);
     };
 
     if (img.tagName === 'VIDEO') {
@@ -267,8 +275,9 @@ const Builder = {
     });
 
     if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
-    this._resizeHandler = debounce(renderPins, 150);
-    window.addEventListener('resize', this._resizeHandler);
+    let _rt;
+    this._resizeHandler = () => { clearTimeout(_rt); _rt = setTimeout(renderPins, 80); };
+    window.addEventListener('resize', this._resizeHandler, { passive: true });
   },
 
   _onClassicImgLoad() {
@@ -284,13 +293,14 @@ const Builder = {
       const px = bounds.x + h.relX * bounds.w;
       const py = bounds.y + h.relY * bounds.h;
       const el = document.createElement('div');
-      el.className = 'pin-marker builder-mode';
+      const isText = h.type === 'text';
+      el.className = 'pin-marker builder-mode' + (isText ? ' pin-text' : '');
       el.dataset.pinId = h.id;
       el.style.left = px + 'px';
       el.style.top = py + 'px';
       el.innerHTML = `
         <div class="pin-icon-wrap">
-          <div class="pin-icon-inner">${Icons.pin}</div>
+          <div class="pin-icon-inner">${isText ? Icons.messageText : Icons.pin}</div>
         </div>
         ${h.label ? `<span class="pin-label-bubble">${escHtml(h.label)}</span>` : ''}
       `;
@@ -434,53 +444,93 @@ const Builder = {
       .map(id => App.getPhoto(id))
       .filter(Boolean);
 
-    if (otherPhotos.length === 0) {
-      App.closeModal();
-      // Clean ghost
-      document.querySelectorAll('.pin-ghost').forEach(el => el.remove());
-      if (this.panoViewer) this.panoViewer.removePin('ghost');
-      App.toast('Ajoutez d\'abord d\'autres photos à la visite.', 'error');
-      this.addingPin = false;
-      document.getElementById('btn-add-pin')?.classList.remove('btn-active');
-      document.getElementById('add-pin-hint')?.classList.add('hidden');
-      return;
-    }
-
-    // Store pending pin coords
     this.pendingPin = { relX, relY, yaw: yaw ?? equirectToYawPitch(relX, relY).yaw, pitch: pitch ?? equirectToYawPitch(relX, relY).pitch };
+    this._selectedTargetId = null;
+
+    const navContent = otherPhotos.length === 0
+      ? `<p style="font-size:.82rem;color:var(--text-muted);padding:10px 12px;background:var(--bg);border-radius:var(--r-md);">
+           Aucune autre photo dans la visite. Ajoutez des photos ou utilisez le type <strong>Texte</strong>.
+         </p>`
+      : `<div class="form-group" style="margin-bottom:4px;">
+           <label class="form-label">Destination *</label>
+           <div class="target-photo-list" id="target-photo-list">
+             ${otherPhotos.map(p => `
+               <div class="target-photo-item" id="target-item-${p.id}" onclick="Builder._selectTarget('${p.id}')">
+                 <img src="${p.src}" alt="${escHtml(p.name)}">
+                 <span>${escHtml(p.name)}</span>
+               </div>
+             `).join('')}
+           </div>
+         </div>`;
 
     App.showModal(`
       <div class="modal-title">${Icons.pin} Configurer le pin</div>
+
       <div class="form-group" style="margin-bottom:16px;">
-        <label class="form-label">Destination *</label>
-        <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:10px;">Choisissez la photo vers laquelle ce pin doit naviguer.</p>
-        <div class="target-photo-list" id="target-photo-list">
-          ${otherPhotos.map(p => `
-            <div class="target-photo-item" id="target-item-${p.id}" onclick="Builder._selectTarget('${p.id}')">
-              <img src="${p.src}" alt="${escHtml(p.name)}">
-              <span>${escHtml(p.name)}</span>
-            </div>
-          `).join('')}
+        <label class="form-label">Type de pin</label>
+        <div style="display:flex;gap:8px;">
+          <span class="pin-type-btn pin-type-btn-active" id="pin-type-nav" onclick="Builder._onPinTypeChange('nav')">
+            <input type="radio" name="pin-type" value="nav" checked style="display:none;">
+            ${Icons.pin} Navigation
+          </span>
+          <span class="pin-type-btn" id="pin-type-text" onclick="Builder._onPinTypeChange('text')">
+            <input type="radio" name="pin-type" value="text" style="display:none;">
+            ${Icons.messageText} Texte
+          </span>
         </div>
       </div>
-      <div class="form-group">
+
+      <div id="pin-panel-nav">${navContent}</div>
+
+      <div id="pin-panel-text" style="display:none;">
+        <div class="form-group" style="margin-bottom:16px;">
+          <label class="form-label">Contenu *</label>
+          <textarea id="pin-text-input" class="form-input form-textarea"
+            placeholder="Entrez une description, un commentaire, une information..." maxlength="600"></textarea>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:12px;">
         <label class="form-label">Libellé (optionnel)</label>
-        <input type="text" id="pin-label-input" class="form-input" placeholder="Ex: Cuisine, Couloir..." maxlength="40">
+        <input type="text" id="pin-label-input" class="form-input" placeholder="Ex: Cuisine, Info..." maxlength="40">
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="Builder._cancelPinModal()">Annuler</button>
         <button class="btn btn-primary" id="btn-save-pin" onclick="Builder._confirmPin()" disabled>Enregistrer</button>
       </div>
     `);
+  },
 
-    this._selectedTargetId = null;
+  _onPinTypeChange(type) {
+    const navPanel = document.getElementById('pin-panel-nav');
+    const textPanel = document.getElementById('pin-panel-text');
+    const navBtn = document.getElementById('pin-type-nav');
+    const textBtn = document.getElementById('pin-type-text');
+    const saveBtn = document.getElementById('btn-save-pin');
+
+    if (type === 'nav') {
+      navPanel.style.display = '';
+      textPanel.style.display = 'none';
+      navBtn.classList.add('pin-type-btn-active');
+      textBtn.classList.remove('pin-type-btn-active');
+      document.querySelector('input[name="pin-type"][value="nav"]').checked = true;
+      saveBtn.disabled = !this._selectedTargetId;
+    } else {
+      navPanel.style.display = 'none';
+      textPanel.style.display = '';
+      navBtn.classList.remove('pin-type-btn-active');
+      textBtn.classList.add('pin-type-btn-active');
+      document.querySelector('input[name="pin-type"][value="text"]').checked = true;
+      saveBtn.disabled = false;
+    }
   },
 
   _selectTarget(photoId) {
     document.querySelectorAll('.target-photo-item').forEach(el => el.classList.remove('selected'));
     document.getElementById(`target-item-${photoId}`)?.classList.add('selected');
     this._selectedTargetId = photoId;
-    document.getElementById('btn-save-pin').disabled = false;
+    const type = document.querySelector('input[name="pin-type"]:checked')?.value || 'nav';
+    if (type === 'nav') document.getElementById('btn-save-pin').disabled = false;
   },
 
   _cancelPinModal() {
@@ -492,16 +542,20 @@ const Builder = {
   },
 
   async _confirmPin() {
-    if (!this._selectedTargetId || !this.pendingPin) return;
+    if (!this.pendingPin) return;
     const label = document.getElementById('pin-label-input').value.trim();
     const { relX, relY, yaw, pitch } = this.pendingPin;
+    const type = document.querySelector('input[name="pin-type"]:checked')?.value || 'nav';
 
-    const pin = {
-      id: genId(),
-      relX, relY, yaw, pitch,
-      targetPhotoId: this._selectedTargetId,
-      label,
-    };
+    let pin;
+    if (type === 'text') {
+      const text = (document.getElementById('pin-text-input')?.value || '').trim();
+      if (!text) { App.toast('Veuillez entrer un texte.', 'error'); return; }
+      pin = { id: genId(), type: 'text', relX, relY, yaw, pitch, label: label || 'Info', text };
+    } else {
+      if (!this._selectedTargetId) return;
+      pin = { id: genId(), type: 'nav', relX, relY, yaw, pitch, targetPhotoId: this._selectedTargetId, label };
+    }
 
     if (!this.tour.hotspots) this.tour.hotspots = {};
     if (!this.tour.hotspots[this.selectedPhotoId]) this.tour.hotspots[this.selectedPhotoId] = [];
@@ -523,28 +577,39 @@ const Builder = {
   },
 
   selectPin(pinId) {
-    // Show pin details/delete option
     const pins = this._getPinsForPhoto(this.selectedPhotoId);
     const pin = pins.find(p => p.id === pinId);
     if (!pin) return;
 
-    const target = App.getPhoto(pin.targetPhotoId);
-    App.showModal(`
-      <div class="modal-title">${Icons.pin} Détails du pin</div>
-      <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg);border-radius:var(--r-md);margin-bottom:16px;">
-        ${target ? `<img src="${target.src}" style="width:72px;height:52px;object-fit:cover;border-radius:var(--r-sm);">` : ''}
-        <div>
-          <div style="font-weight:600;font-size:.9rem;">Destination : ${target ? escHtml(target.name) : 'Photo supprimée'}</div>
-          ${pin.label ? `<div style="font-size:.82rem;color:var(--text-muted);">Libellé : ${escHtml(pin.label)}</div>` : ''}
+    if (pin.type === 'text') {
+      App.showModal(`
+        <div class="modal-title">${Icons.messageText} Pin texte</div>
+        <div style="padding:14px 16px;background:var(--bg);border-radius:var(--r-md);margin-bottom:16px;">
+          <div style="font-weight:700;font-size:.9rem;margin-bottom:8px;">${escHtml(pin.label || 'Info')}</div>
+          <div style="font-size:.86rem;color:var(--text-muted);line-height:1.7;white-space:pre-wrap;">${escHtml(pin.text || '')}</div>
         </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="App.closeModal()">Fermer</button>
-        <button class="btn btn-danger" onclick="Builder.deletePin('${pinId}')">
-          ${Icons.trash} Supprimer
-        </button>
-      </div>
-    `);
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="App.closeModal()">Fermer</button>
+          <button class="btn btn-danger" onclick="Builder.deletePin('${pinId}')">${Icons.trash} Supprimer</button>
+        </div>
+      `);
+    } else {
+      const target = App.getPhoto(pin.targetPhotoId);
+      App.showModal(`
+        <div class="modal-title">${Icons.pin} Pin de navigation</div>
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg);border-radius:var(--r-md);margin-bottom:16px;">
+          ${target ? `<img src="${target.src}" style="width:72px;height:52px;object-fit:cover;border-radius:var(--r-sm);">` : ''}
+          <div>
+            <div style="font-weight:600;font-size:.9rem;">Destination : ${target ? escHtml(target.name) : 'Photo supprimée'}</div>
+            ${pin.label ? `<div style="font-size:.82rem;color:var(--text-muted);">Libellé : ${escHtml(pin.label)}</div>` : ''}
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="App.closeModal()">Fermer</button>
+          <button class="btn btn-danger" onclick="Builder.deletePin('${pinId}')">${Icons.trash} Supprimer</button>
+        </div>
+      `);
+    }
   },
 
   async deletePin(pinId) {
@@ -667,6 +732,77 @@ const Builder = {
     if (!this.selectedPhotoId) {
       this.selectPhoto(newIds[0]);
     }
+  },
+
+  showMusicModal() {
+    const music = this.tour.music;
+    App.showModal(`
+      <div class="modal-title">${Icons.music} Musique de fond</div>
+      <div class="form-group" style="margin-bottom:18px;">
+        <label class="form-label">Fichier audio</label>
+        <input type="file" id="music-file-input" accept="audio/*" class="form-input" style="padding:8px 10px;cursor:pointer;">
+        ${music ? `<p style="font-size:.8rem;color:var(--text-muted);margin-top:8px;">Actuel : <strong>${escHtml(music.name)}</strong></p>` : '<p style="font-size:.8rem;color:var(--text-muted);margin-top:6px;">Formats acceptés : MP3, WAV, OGG, AAC…</p>'}
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Volume par défaut</label>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:4px;">
+          <span style="color:var(--text-muted);">${Icons.volume}</span>
+          <input type="range" id="music-volume-input" min="0" max="1" step="0.05"
+            value="${music?.volume ?? 0.7}" style="flex:1;accent-color:var(--primary);">
+          <span id="music-volume-val" style="font-weight:800;color:var(--primary);min-width:38px;text-align:right;">
+            ${Math.round((music?.volume ?? 0.7) * 100)}%
+          </span>
+        </div>
+      </div>
+      <div class="modal-actions" style="margin-top:20px;">
+        ${music ? `<button class="btn btn-danger" style="margin-right:auto;" onclick="Builder.removeMusic()">${Icons.trash} Supprimer</button>` : ''}
+        <button class="btn btn-secondary" onclick="App.closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="Builder.saveMusic()">${Icons.check} Enregistrer</button>
+      </div>
+    `);
+    document.getElementById('music-volume-input').addEventListener('input', function() {
+      document.getElementById('music-volume-val').textContent = Math.round(this.value * 100) + '%';
+    });
+  },
+
+  async saveMusic() {
+    const fileInput = document.getElementById('music-file-input');
+    const volume = parseFloat(document.getElementById('music-volume-input').value);
+
+    if (fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        this.tour.music = { src: e.target.result, name: file.name, volume };
+        await App.saveTour(this.tour);
+        this._showSaved();
+        App.closeModal();
+        App.toast('Musique enregistrée !');
+        // Refresh music button label
+        const btn = document.getElementById('btn-music');
+        if (btn) { btn.style.cssText = 'color:var(--primary);border-color:rgba(79,110,247,.3);background:var(--primary-light);'; btn.innerHTML = `${Icons.music} Musique ♪`; }
+      };
+      reader.readAsDataURL(file);
+    } else if (this.tour.music) {
+      this.tour.music.volume = volume;
+      await App.saveTour(this.tour);
+      this._showSaved();
+      App.closeModal();
+      App.toast('Volume mis à jour !');
+    } else {
+      App.closeModal();
+    }
+  },
+
+  async removeMusic() {
+    const ok = await App.showConfirm('Supprimer la musique de fond ?', { type: 'danger', title: 'Supprimer la musique ?', confirmText: 'Supprimer' });
+    if (!ok) return;
+    this.tour.music = null;
+    await App.saveTour(this.tour);
+    this._showSaved();
+    App.toast('Musique supprimée.', 'info');
+    const btn = document.getElementById('btn-music');
+    if (btn) { btn.style.cssText = ''; btn.innerHTML = `${Icons.music} Musique`; }
   },
 
   async removePhoto(photoId) {

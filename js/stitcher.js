@@ -45,8 +45,9 @@ const Stitcher = {
             <strong>Comment ça marche ?</strong>
             Prenez plusieurs photos depuis le <em>centre exact</em> de la pièce, en faisant pivoter sur place.
             Pour une pièce carrée : 4 photos à <strong>0°, 90°, 180° et 270°</strong> suffisent.
-            Chaque photo est projetée <em>individuellement</em> sur la sphère — les zones sans photo restent noires, sans déformation.
-            Ajustez le <em>cap</em> (direction horizontale) et le <em>champ de vision</em> de chaque photo, puis cliquez sur <strong>Générer</strong>.
+            Ajustez le <em>cap</em> (direction horizontale) et le <em>champ de vision</em> de chaque photo,
+            puis cliquez sur <strong>Générer</strong>. Le moteur normalise automatiquement l'exposition et
+            fusionne les photos avec un <em>feathering en courbe S</em> pour des coutures invisibles.
           </div>
         </div>
 
@@ -545,18 +546,56 @@ self.onmessage = function(e) {
   const { photos, W, H } = e.data;
   const PI = Math.PI;
 
-  const pc = photos.map(p => {
+  /* ── Smoothstep (courbe en S) pour un feathering doux ── */
+  function smoothstep(t) {
+    const c = t < 0 ? 0 : t > 1 ? 1 : t;
+    return c * c * (3 - 2 * c);
+  }
+
+  /* ── Étape 1 : normalisation d'exposition par photo ──
+     On échantillonne la zone centrale (50%) pour estimer la luminance moyenne.
+     Chaque photo reçoit un facteur de correction vers la luminance globale cible.
+     Cela efface les différences d'exposition et de balance des blancs. */
+  const photoBuffers = photos.map(p => new Uint8ClampedArray(p.data));
+
+  const lumaStats = photos.map((p, idx) => {
+    const d = photoBuffers[idx];
+    let sumL = 0, count = 0;
+    const x0 = (p.w * 0.25) | 0, x1 = (p.w * 0.75) | 0;
+    const y0 = (p.h * 0.25) | 0, y1 = (p.h * 0.75) | 0;
+    for (let y = y0; y < y1; y += 4) {
+      for (let x = x0; x < x1; x += 4) {
+        const i = (y * p.w + x) * 4;
+        sumL += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        count++;
+      }
+    }
+    return count > 0 ? sumL / count : 128;
+  });
+
+  const globalLuma = lumaStats.reduce((s, v) => s + v, 0) / lumaStats.length;
+
+  // Facteur de correction : racine carrée du ratio (correction douce), limité à ±40%
+  const lumaScales = lumaStats.map(L => {
+    if (L < 5) return 1;
+    return Math.max(0.6, Math.min(1.55, Math.sqrt(globalLuma / L)));
+  });
+
+  /* ── Étape 2 : pré-calcul des constantes par photo ── */
+  const pc = photos.map((p, idx) => {
     const yaw  = p.yaw   * PI / 180;
     const pit  = p.pitch * PI / 180;
     const hFov = p.hFov  * PI / 180;
     const hTH  = Math.tan(hFov / 2);
     const hTV  = hTH * p.h / p.w;
     return {
-      data: new Uint8ClampedArray(p.data),
+      data: photoBuffers[idx],
       w: p.w, h: p.h,
       cosY: Math.cos(-yaw), sinY: Math.sin(-yaw),
       cosP: Math.cos(-pit), sinP: Math.sin(-pit),
+      yawRad: yaw,
       hTH, hTV,
+      L: lumaScales[idx],
     };
   });
 
@@ -573,86 +612,105 @@ self.onmessage = function(e) {
       const vy = sinPhi;
       const vz = cosPhi * Math.cos(theta);
 
-      // ── Passe 1 : projection normale (pixels couverts par une photo) ──
-      let totalW = 0, totalR = 0, totalG = 0, totalB = 0;
+      let nW = 0, nR = 0, nG = 0, nB = 0;
+      let gW = 0, gR = 0, gG = 0, gB = 0;
 
       for (let pi2 = 0; pi2 < pc.length; pi2++) {
         const p = pc[pi2];
+
         const x1 =  vx * p.cosY + vz * p.sinY;
         const y1 =  vy;
         const z1 = -vx * p.sinY + vz * p.cosY;
-        const y2 =  y1 * p.cosP - z1 * p.sinP;
-        const z2 =  y1 * p.sinP + z1 * p.cosP;
+        const y2 = y1 * p.cosP - z1 * p.sinP;
+        const z2 = y1 * p.sinP + z1 * p.cosP;
+
         if (z2 < 1e-6) continue;
 
         const tx = x1 / z2;
         const ty = y2 / z2;
         const rawX = (tx / p.hTH + 1) * 0.5 * p.w;
         const rawY = (-ty / p.hTV + 1) * 0.5 * p.h;
+        const inX = rawX >= 0 && rawX < p.w;
+        const inY = rawY >= 0 && rawY < p.h;
+        if (!inX && !inY) continue;
 
-        if (rawX < 0 || rawX >= p.w || rawY < 0 || rawY >= p.h) continue;
+        if (inX && inY) {
+          const normX = Math.min(rawX / p.w, 1 - rawX / p.w) * 2;
+          const normY = Math.min(rawY / p.h, 1 - rawY / p.h) * 2;
+          const wH = smoothstep(normX);
+          const wV = 0.2 + 0.8 * smoothstep(normY);
+          const w  = wH * wV;
+          if (w <= 0) continue;
 
-        // Feathering cosinus : fondu doux sur les 15% de chaque bord
-        // → transitions nettes aux chevauchements sans bouillie
-        const FEATHER = 0.15;
-        const nx = Math.min(rawX / p.w, 1 - rawX / p.w) / FEATHER;
-        const ny = Math.min(rawY / p.h, 1 - rawY / p.h) / FEATHER;
-        const t  = Math.min(Math.min(nx, ny), 1);
-        const fw = Math.max(0.001, 0.5 * (1 - Math.cos(PI * t)));
+          const ix = rawX | 0, iy = rawY | 0;
+          const fxf = rawX - ix, fyf = rawY - iy;
+          const xb = ix + 1 < p.w ? ix + 1 : ix;
+          const yb = iy + 1 < p.h ? iy + 1 : iy;
+          const i00 = (iy * p.w + ix) * 4, i10 = (iy * p.w + xb) * 4;
+          const i01 = (yb * p.w + ix) * 4, i11 = (yb * p.w + xb) * 4;
+          const aa = (1-fxf)*(1-fyf), bb = fxf*(1-fyf), cc = (1-fxf)*fyf, dd = fxf*fyf;
 
-        const ix = rawX | 0, iy = rawY | 0;
-        const fx = rawX - ix, fy = rawY - iy;
-        const xb = ix + 1 < p.w ? ix + 1 : ix;
-        const yb = iy + 1 < p.h ? iy + 1 : iy;
-        const i00 = (iy * p.w + ix) * 4, i10 = (iy  * p.w + xb) * 4;
-        const i01 = (yb * p.w + ix) * 4, i11 = (yb  * p.w + xb) * 4;
-        const aa = (1-fx)*(1-fy), bb = fx*(1-fy), cc = (1-fx)*fy, dd = fx*fy;
-        totalR += (p.data[i00]*aa + p.data[i10]*bb + p.data[i01]*cc + p.data[i11]*dd) * fw;
-        totalG += (p.data[i00+1]*aa+p.data[i10+1]*bb+p.data[i01+1]*cc+p.data[i11+1]*dd)*fw;
-        totalB += (p.data[i00+2]*aa+p.data[i10+2]*bb+p.data[i01+2]*cc+p.data[i11+2]*dd)*fw;
-        totalW += fw;
+          const Lw = p.L * w;
+          nR += (p.data[i00]*aa + p.data[i10]*bb + p.data[i01]*cc + p.data[i11]*dd) * Lw;
+          nG += (p.data[i00+1]*aa + p.data[i10+1]*bb + p.data[i01+1]*cc + p.data[i11+1]*dd) * Lw;
+          nB += (p.data[i00+2]*aa + p.data[i10+2]*bb + p.data[i01+2]*cc + p.data[i11+2]*dd) * Lw;
+          nW += w;
+
+        } else {
+          const absTX  = tx < 0 ? -tx : tx;
+          const normTX = absTX / p.hTH;
+          if (normTX > 1.5) continue;
+
+          const srcX = rawX < 0 ? 0 : rawX >= p.w ? p.w - 1 : rawX | 0;
+          const srcY = !inY ? (rawY < 0 ? 0 : p.h - 1) : (rawY | 0);
+
+          const wH2 = Math.max(0, 1 - normTX * normTX * 0.64);
+          const absTY = ty < 0 ? -ty : ty;
+          const ovYN  = Math.max(0, absTY / p.hTV - 1);
+          const wV2   = 1 / (1 + ovYN * 0.15);
+          const wg    = wH2 * wV2;
+          if (wg < 1e-5) continue;
+
+          const ig = (srcY * p.w + srcX) * 4;
+          const Lwg = p.L * wg;
+          gR += p.data[ig]     * Lwg;
+          gG += p.data[ig + 1] * Lwg;
+          gB += p.data[ig + 2] * Lwg;
+          gW += wg;
+        }
       }
 
       const idx = (oy * W + ox) * 4;
-
-      if (totalW > 0) {
-        output[idx]   = totalR / totalW;
-        output[idx+1] = totalG / totalW;
-        output[idx+2] = totalB / totalW;
+      if (nW > 0) {
+        output[idx]   = Math.min(255, nR / nW);
+        output[idx+1] = Math.min(255, nG / nW);
+        output[idx+2] = Math.min(255, nB / nW);
+        output[idx+3] = 255;
+      } else if (gW > 0) {
+        output[idx]   = Math.min(255, gR / gW);
+        output[idx+1] = Math.min(255, gG / gW);
+        output[idx+2] = Math.min(255, gB / gW);
         output[idx+3] = 255;
       } else {
-        // ── Passe 2 : pôle fill ──
-        // Ce pixel n'est couvert par aucune photo.
-        // On cherche la photo dont l'azimut est le plus proche de theta
-        // et on prend son bord haut ou bas à la colonne correcte.
-        // C'est l'effet naturel de convergence en équirectangulaire.
-        let bestP = null, bestDist = Infinity;
+        let bestDiff = Infinity, bestP = null;
         for (let pi2 = 0; pi2 < pc.length; pi2++) {
           const p = pc[pi2];
-          const x1 =  vx * p.cosY + vz * p.sinY;
-          const z1 = -vx * p.sinY + vz * p.cosY;
-          const y1 =  vy;
-          const z2 =  y1 * p.sinP + z1 * p.cosP;
-          if (z2 < 1e-6) continue;
-          const tx = x1 / z2;
-          // On n'utilise que les photos qui couvrent cet azimut horizontalement
-          const normTX = Math.abs(tx) / p.hTH;
-          if (normTX >= 1) continue;
-          if (normTX < bestDist) { bestDist = normTX; bestP = { p, tx }; }
+          let diff = Math.abs(theta - p.yawRad);
+          if (diff > PI) diff = 2 * PI - diff;
+          if (diff < bestDiff) { bestDiff = diff; bestP = p; }
         }
         if (bestP) {
-          const { p, tx } = bestP;
-          const rawX = (tx / p.hTH + 1) * 0.5 * p.w;
-          const srcX = Math.max(0, Math.min(p.w - 1, rawX | 0));
-          // Bord haut si phi > 0 (pôle nord), bord bas si phi < 0 (pôle sud)
-          const srcY = phi >= 0 ? 0 : p.h - 1;
-          const ig = (srcY * p.w + srcX) * 4;
-          output[idx]   = p.data[ig];
-          output[idx+1] = p.data[ig + 1];
-          output[idx+2] = p.data[ig + 2];
+          const relTheta = theta - bestP.yawRad;
+          const txPole   = Math.tan(relTheta);
+          const rawX2    = (txPole / bestP.hTH + 1) * 0.5 * bestP.w;
+          const srcX2    = rawX2 < 0 ? 0 : rawX2 >= bestP.w ? bestP.w - 1 : rawX2 | 0;
+          const srcY2    = phi >= 0 ? 0 : bestP.h - 1;
+          const ig2      = (srcY2 * bestP.w + srcX2) * 4;
+          output[idx]   = Math.min(255, bestP.data[ig2]     * bestP.L);
+          output[idx+1] = Math.min(255, bestP.data[ig2 + 1] * bestP.L);
+          output[idx+2] = Math.min(255, bestP.data[ig2 + 2] * bestP.L);
           output[idx+3] = 255;
         }
-        // Si aucune photo ne couvre cet azimut, on laisse noir
       }
     }
 
